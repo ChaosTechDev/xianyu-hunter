@@ -1,0 +1,146 @@
+# =============================================================================
+# 闲鱼监控 自包含部署（docker compose）
+#
+# 与旧版的根本区别：
+#   - 旧版 `image: ghcr.io/usagi-org/ai-goofish:latest` + 挂载 app-overrides 做叠加层，
+#     等于"把上游镜像当底座"，本地改动只是覆盖上去的一层。现已改为 `build: .`
+#     从本仓库源码独立构建，构建结果只由本仓库内容决定，可复现、可审计。
+#   - 旧版 `pull_policy: missing` 配合硬编码 `latest`，既永远钉死在首次拉取的版本、
+#     又拿不到上游修复，是最糟的组合。改用本地构建后此问题消失。
+#
+# ============================ ⚠️ 配置唯一入口 ⚠️ ============================
+# 所有用户配置（AI、通知、Web 账号密码、爬虫行为等）**只能**写在 `.env` 文件里。
+#
+# 下面 `environment:` 块刻意只保留系统级键，绝不出现 OPENAI_* / BARK_URL /
+# WEB_USERNAME / WEB_PASSWORD 等用户配置项。原因是一个已实测坐实的 P0 缺陷：
+# compose 的 environment 块优先级高于 .env，旧版在这里硬编码了
+# `OPENAI_API_KEY: ""`、`OPENAI_BASE_URL`、`OPENAI_MODEL_NAME`、`BARK_URL`
+# 等占位符，把用户写进 .env 的真实配置静默压掉，实测导致 API_KEY 变成空串、
+# AI 客户端为 None、采集子进程 AI 完全失效；而 Web 层读的是 .env，界面仍显示
+# "已配置"，形成"显示 A、实际用 B"的错配。
+#
+# 现在 Python 侧（src/config.py 的 load_dotenv(override=True)、settings.py 的
+# settings_customise_sources）已确立 .env 为唯一配置真源。为了不再退化回旧问题：
+#   >>> 不要往下面的 environment 块里添加任何用户可配置项。<<<
+# 完整可配置清单见 .env.example。
+# =============================================================================
+
+services:
+  app:
+    # 不再依赖外部镜像：从本仓库当前目录构建
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 构建时换源，国内网络构建必需。可在 .env 或 shell 里覆盖：
+        #   PIP_INDEX_URL=https://pypi.org/simple docker compose build
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+
+    image: xianyu-hunter:local
+    container_name: ai-goofish-monitor-fusion-production
+
+    # 作为 PID 1 的信号转发/子进程回收载体（tini 在镜像里已装）。
+    # compose 的 init 会注入 Docker 自带的 tini 当 PID 1；Dockerfile 里的
+    # ENTRYPOINT 用 `tini -s` 注册为 subreaper，两者共存不会互相干扰，
+    # 也不会打印 "Tini is not running as PID 1" 警告。
+    init: true
+
+    # Chromium 的 /dev/shm 需求，1GB 可显著降低渲染崩溃概率
+    shm_size: "1gb"
+
+    ports:
+      - "8787:8000"
+
+    # =====================================================================
+    # 配置注入：只从这里来
+    # =====================================================================
+    # .env 必须存在，否则 compose 启动即报错。首次部署先执行：
+    #   cp .env.example .env   （然后按注释填写）
+    env_file:
+      - .env
+
+    # =====================================================================
+    # 仅系统级键。严禁在此添加用户配置项（见文件头说明）。
+    # =====================================================================
+    environment:
+      # SQLite 数据库落到被挂载的 /app/data，容器重建不丢数据
+      APP_DATABASE_FILE: /app/data/app.sqlite3
+      # 容器内监听端口，与 Dockerfile EXPOSE 8000 一致
+      SERVER_PORT: "8000"
+      # 告诉应用身处容器：src/scraper.py 据此固定使用 Chromium 通道
+      # （镜像内没有 Chrome/Edge 内核，不设会导致启动浏览器失败）
+      RUNNING_IN_DOCKER: "true"
+      # Playwright 浏览器安装位置，与 Dockerfile 内一致
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # 时区：影响行情日报定时、任务 cron 解析、日志时间戳
+      TZ: Asia/Shanghai
+
+    command:
+      - python
+      - -m
+      - src.app
+
+    # =====================================================================
+    # 挂载：数据与可编辑内容全部落到宿主机
+    # =====================================================================
+    volumes:
+      # --- 配置（唯一真源，网页设置页写入的也是这个文件）---
+      - ./.env:/app/.env
+
+      # --- 运行时数据 ---
+      # 沿用带 -production 后缀的目录名，以兼容既有用户数据与既有 .gitignore。
+      # 若这些宿主机目录在原生 Linux 上已存在且属主不是 UID 1000，
+      # 容器内非 root 的 appuser 会写不进去，需先执行：
+      #   chown -R 1000:1000 data-production state-production logs-production \
+      #                      jsonl-production price-history-production images-production
+      - ./data-production:/app/data
+      - ./state-production:/app/state
+      - ./logs-production:/app/logs
+      - ./jsonl-production:/app/jsonl
+      - ./price-history-production:/app/price_history
+
+      # --- 商品图片（旧版漏挂，导致图片不持久化）---
+      - ./images-production:/app/images
+
+      # --- Prompt 模板（旧版漏挂，导致网页改的 Prompt 在 --force-recreate 后全丢）---
+      # 挂载后网页对 Prompt 的修改直接落宿主机，容器重建不丢失。
+      - ./prompts:/app/prompts
+
+      # --- 任务配置的旧格式兼容文件 ---
+      # ⚠️ 前置要求：`./config.json` 必须已经作为**文件**存在，否则 Docker 会把
+      #    不存在的挂载源创建成**目录**，容器内读它时触发 IsADirectoryError
+      #    导致启动失败。首次部署务必先执行：
+      #        touch config.json && echo '[]' > config.json
+      #    或者用等价命令： echo '[]' > config.json
+      #
+      #    说明：任务数据现已迁移到 SQLite，config.json 只在数据库 tasks 表
+      #    为空时被当作一次性的 legacy 导入源（见 sqlite_bootstrap.py）。
+      #    若你确认不需要 legacy 导入，也可以直接注释掉下面这一行。
+      - ./config.json:/app/config.json
+
+    restart: unless-stopped
+
+    # 给爬虫子进程留出优雅退出的时间（等待 Chromium 关闭、写盘完成）
+    stop_grace_period: 30s
+
+    # 禁止容器内进程通过 setuid/setgid 提权。Chromium 以 --no-sandbox 启动，
+    # 不依赖 setuid，因此不受影响。
+    security_opt:
+      - no-new-privileges:true
+
+    # 资源上限：防止多任务并发采集 + Chromium 把宿主机内存打满
+    mem_limit: 4g
+    cpus: 2.0
+
+    # 健康检查调 /health（该端点无需认证；认证中间件只拦 /api/*）
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+          || exit 1
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3

@@ -1,0 +1,72 @@
+# =============================================================================
+# Docker 构建上下文排除清单
+#
+# 目的：把镜像构建上下文压到最小，并且确保运行时数据、本地密钥、
+# 本地构建产物绝不会被意外打进镜像层。
+#
+# 注意两条被测试锁定的约定（tests/test_frontend_build_paths.py）：
+#   1) 必须保留独立一行 `dist/`  —— 排除仓库根的本地前端构建产物，
+#      镜像里的 /app/dist 一律由构建阶段 1 现场生成，避免打包陈旧产物。
+#   2) 不允许出现 `web-ui/dist` —— web-ui/vite.config.ts 的输出目录是
+#      `../dist`（即仓库根 dist/），web-ui/dist 根本不是产物目录，
+#      排除它没有意义，还会让"产物路径只此一处"的约定产生歧义。
+# =============================================================================
+
+# --- 版本控制 / 编辑器 / AI 工具 ---
+.git
+.gitignore
+.idea
+.vscode
+.claude
+.serena
+.DS_Store
+
+# --- Python 缓存与虚拟环境 ---
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+.pytest_cache
+.coverage
+htmlcov
+coverage.xml
+
+# --- 密钥：绝不入镜像（.env 由 compose 在运行时注入）---
+.env
+.env.local
+config/.env
+
+# --- 前端依赖与本地构建产物 ---
+node_modules
+# 下面这行是仓库根本地构建产物；镜像内的前端由阶段 1 重新构建。
+dist/
+
+# --- 运行时数据目录：本地数据绝不入镜像 ---
+# 仓库当前使用带 -production 后缀的目录名以兼容既有用户数据，
+# 无后缀的是本地开发目录，两类都排除。
+data/
+data-production/
+state/
+state-production/
+logs/
+logs-production/
+jsonl/
+jsonl-production/
+price_history/
+price-history-production/
+images/
+images-production/
+task_images/
+archive/
+
+# --- 测试与文档（不进运行镜像）---
+tests/
+.pytest_cache/
+*.md
+!README.md
+
+# --- 运行时产生的配置文件（由 compose 挂载或首次启动生成）---
+# 精确匹配 `config.json`，不会命中 `config.json.example`（后者必须保留，
+# 镜像需要 COPY 它作为模板）。
+config.json

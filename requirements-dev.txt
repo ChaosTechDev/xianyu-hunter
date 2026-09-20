@@ -1,0 +1,11 @@
+# 开发/测试依赖。
+#
+# 运行期依赖仍在 requirements.txt（未改动），这里只在其之上追加测试工具，
+# 以免把 pytest / 覆盖率工具带进生产镜像。
+#
+# 安装：pip install -r requirements-dev.txt
+-r requirements.txt
+
+# 测试框架与覆盖率（pytest 本身已在 requirements.txt 中，此处显式声明版本下限）
+pytest>=8,<10
+pytest-cov>=5

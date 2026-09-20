@@ -1,0 +1,8 @@
+此文件仅用于保留 static/ 目录本身。
+
+目录下的图片（*.png / *.jpg 等，见 .gitignore）不入版本库：
+它们是本地实机截图，属于开发过程中的临时素材。
+
+目录不可删除——Dockerfile 会 `COPY static /app/static`，且
+src/app.py 用 StaticFiles(directory="static") 挂载到 /static，
+目录缺失时构建与启动都会失败。

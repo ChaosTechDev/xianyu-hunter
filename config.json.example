@@ -1,0 +1,20 @@
+[
+  {
+    "task_name": "苹果watch S10",
+    "enabled": true,
+    "keyword": "苹果watch S10",
+    "description": "九成新，充电线包装盒齐全，无明显磕碰，卖家信用优秀",
+    "max_pages": 10,
+    "personal_only": true,
+    "min_price": "8000",
+    "max_price": "2000",
+    "cron": null,
+    "ai_prompt_base_file": "prompts/base_prompt.txt",
+    "ai_prompt_criteria_file": "prompts/苹果watch_s10_criteria.txt",
+    "account_state_file": "state/acc1.json",
+    "free_shipping": true,
+    "new_publish_option": "14天内",
+    "region": "江苏/南京/全南京",
+    "is_running": false
+  }
+]

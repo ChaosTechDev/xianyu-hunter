@@ -1,0 +1,54 @@
+# 数据与运行时
+data-production/
+state-production/
+logs-production/
+jsonl-production/
+price-history-production/
+images-production/
+config/.env
+data/.session_secret
+
+# 凭据文件：.env 是唯一配置真源，内含 API Key / 推送密钥 / Web 密码，
+# 绝不能进版本库。compose 通过 env_file 与挂载读取，无需提交。
+.env
+.env.local
+.env.*.local
+
+# 配置副本可能含真实 task 与凭据，仅提交 *.example 模板。
+# config.json 是 compose 挂载的**运行时任务数据**（tasks 表的落盘镜像），
+# 正常情况下是 '[]'，但用户一旦建过任务就会含真实关键词与价格区间，
+# 因此必须忽略；只有 config.json.example 模板入库。
+config.json
+!config.json.example
+!.env.example
+
+# 运行时产物
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 前端构建产物（由 web-ui 构建生成，不再入库）
+dist/
+web-ui/dist/
+web-ui/node_modules/
+
+# 日志与下载图片（锚定仓库根，避免误伤 web-ui/src/data 这类源码目录）
+/logs/
+/images/
+/jsonl/
+/price_history/
+/data/
+/state/
+
+# static/ 下的图片属本地界面演示素材，不入库。
+# 目录本身必须保留：Dockerfile 会 `COPY static /app/static`，且 src/app.py 用
+# StaticFiles(directory="static") 挂载到 /static —— 目录缺失时构建与启动都会失败，
+# 因此用 static/.gitkeep 占位。
+static/*.png
+static/*.jpg
+static/*.jpeg
+static/*.gif
+static/*.webp
